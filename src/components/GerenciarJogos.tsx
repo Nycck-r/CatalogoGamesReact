@@ -6,8 +6,9 @@ import type { Jogo, Categoria } from '../types';
 export function GerenciarJogos() {
     const [jogos, setJogos] = useState<Jogo[]>([]);
     const [categorias, setCategorias] = useState<Categoria[]>([]);
-    const [erro, setErro] = useState('');
-
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [idParaExcluir, setIdParaExcluir] = useState<number | null>(null);
+    
     const [idEdicao, setIdEdicao] = useState<number | null>(null);
     const [titulo, setTitulo] = useState('');
     const [preco, setPreco] = useState(0);
@@ -15,131 +16,136 @@ export function GerenciarJogos() {
     const [classificacao, setClassificacao] = useState<Classificacao>(Classificacao.Livre);
     const [categoriaId, setCategoriaId] = useState<number>(0);
 
-    useEffect(() => {
-        carregarDados();
-    }, []);
+    useEffect(() => { carregarDados(); }, []);
 
     async function carregarDados() {
-        try {
-            const [listaJogos, listaCategorias] = await Promise.all([
-                apiService.request('/jogos'),
-                apiService.request('/categorias')
-            ]);
-            setJogos(listaJogos);
-            setCategorias(listaCategorias);
-            if (listaCategorias.length > 0 && !categoriaId) setCategoriaId(listaCategorias[0].id);
-        } catch (err: any) {
-            setErro("Erro ao sincronizar dados com o servidor.");
-        }
+        const [j, c] = await Promise.all([apiService.request('/jogos'), apiService.request('/categorias')]);
+        setJogos(j); setCategorias(c);
+        if (c.length > 0 && !categoriaId) setCategoriaId(c[0].id);
     }
 
     async function handleSalvar(e: React.FormEvent) {
         e.preventDefault();
-        setErro('');
-        const payload = { id: idEdicao || 0, titulo, precoOriginal: preco, anoLancamento: ano, classificacao, categoriaId };
-        
+        const body = { id: idEdicao || 0, titulo, precoOriginal: preco, anoLancamento: ano, classificacao, categoriaId };
         try {
-            if (idEdicao) {
-                await apiService.request(`/jogos/${idEdicao}`, {
-                    method: 'PUT',
-                    body: JSON.stringify(payload)
-                });
-            } else {
-                await apiService.request('/jogos', {
-                    method: 'POST',
-                    body: JSON.stringify(payload)
-                });
-            }
-            limparFormulario();
-            carregarDados();
-        } catch (err: any) {
-            setErro(err.message || "Erro ao salvar o jogo.");
-        }
+            if (idEdicao) await apiService.request(`/jogos/${idEdicao}`, { method: 'PUT', body: JSON.stringify(body) });
+            else await apiService.request('/jogos', { method: 'POST', body: JSON.stringify(body) });
+            fecharModal(); carregarDados();
+        } catch (err) { alert("Erro ao salvar jogo."); }
     }
 
     function prepararEdicao(jogo: Jogo) {
-        setIdEdicao(jogo.id);
-        setTitulo(jogo.titulo);
-        setPreco(jogo.precoOriginal);
-        setAno(jogo.anoLancamento);
-        setClassificacao(jogo.classificacao);
-        setCategoriaId(jogo.categoriaId);
+        setIdEdicao(jogo.id); setTitulo(jogo.titulo); setPreco(jogo.precoOriginal);
+        setAno(jogo.anoLancamento); setClassificacao(jogo.classificacao);
+        setCategoriaId(jogo.categoriaId); setIsModalOpen(true);
     }
 
-    async function handleExcluir(id: number) {
-        if (!confirm("Excluir este jogo permanentemente do catálogo?")) return;
-        try {
-            await apiService.request(`/jogos/${id}`, { method: 'DELETE' });
-            carregarDados();
-        } catch (err: any) {
-            setErro(err.message || "Erro ao deletar jogo.");
-        }
-    }
+    function fecharModal() { setIsModalOpen(false); setIdEdicao(null); setTitulo(''); setPreco(0); }
 
-    function limparFormulario() {
-        setIdEdicao(null);
-        setTitulo('');
-        setPreco(0);
-        setAno(new Date().getFullYear());
-        setClassificacao(Classificacao.Livre);
-        if (categorias.length > 0) setCategoriaId(categorias[0].id);
+    async function confirmarExclusao() {
+        if (!idParaExcluir) return;
+        await apiService.request(`/jogos/${idParaExcluir}`, { method: 'DELETE' });
+        setIdParaExcluir(null);
+        carregarDados();
     }
 
     return (
-        <div style={{ padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#ffffff' }}>
-            <h3 style={{ marginTop: 0, borderBottom: '2px solid #008542', paddingBottom: '10px', color: '#333' }}>🎮 Catálogo de Jogos</h3>
-            {erro && <p style={{ color: '#dc3545' }}>{erro}</p>}
+        <div style={{ animation: 'fadeIn 0.4s ease' }}>
+            <button onClick={() => setIsModalOpen(true)} style={{ padding: '12px 24px', backgroundColor: '#e60000', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer', marginBottom: '30px', transition: '0.2s', boxShadow: '0 4px 12px rgba(230,0,0,0.2)' }}>
+                <i className="fa-solid fa-plus" style={{ marginRight: '8px' }}></i> ADICIONAR JOGO
+            </button>
 
-            <form onSubmit={handleSalvar} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '30px', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '6px', border: '1px solid #e3e3e3' }}>
-                <h4 style={{ gridColumn: '1 / -1', margin: '0 0 5px 0', color: '#008542' }}>{idEdicao ? "✏️ Editar Cadastro" : "✨ Novo Registro"}</h4>
-                <input type="text" placeholder="Título" value={titulo} onChange={e => setTitulo(e.target.value)} required style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                <input type="number" step="0.01" placeholder="Preço" value={preco} onChange={e => setPreco(Number(e.target.value))} required style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                <input type="number" placeholder="Ano" value={ano} onChange={e => setAno(Number(e.target.value))} required style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                
-                <select value={classificacao} onChange={e => setClassificacao(Number(e.target.value))} style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}>
-                    <option value={Classificacao.Livre}>Livre</option>
-                    <option value={Classificacao.DezAnos}>+10 Anos</option>
-                    <option value={Classificacao.DozeAnos}>+12 Anos</option>
-                    <option value={Classificacao.DezoitoAnos}>+18 Anos</option>
-                </select>
+            <div className="card-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '25px' }}>
+                {jogos.map((j, index) => (
+                    <div key={j.id} className="card-hover animate-slide-up" style={{ backgroundColor: '#fff', padding: '25px', borderRadius: '20px', border: '1px solid #eee', position: 'relative', animationDelay: `${index * 0.05}s` }}>
+                        <span style={{ position: 'absolute', top: '20px', right: '20px', fontSize: '12px', fontWeight: '800', backgroundColor: '#111', color: '#fff', padding: '4px 10px', borderRadius: '6px' }}>{j.anoLancamento}</span>
+                        
+                        <h3 style={{ fontSize: '20px', marginBottom: '5px', color: '#111', paddingRight: '50px' }}>{j.titulo}</h3>
+                        <p style={{ fontSize: '13px', color: '#e60000', fontWeight: '600', marginBottom: '15px' }}>{j.categoria}</p>
+                        
+                        <div style={{ backgroundColor: '#f8f9fa', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
+                            <div style={{ fontSize: '12px', color: '#999' }}>Preço Base: R$ {j.precoOriginal.toFixed(2)}</div>
+                            <div style={{ fontSize: '24px', fontWeight: '800', color: '#111' }}>R$ {j.precoComDesconto?.toFixed(2)}</div>
+                        </div>
 
-                <select value={categoriaId} onChange={e => setCategoriaId(Number(e.target.value))} style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', gridColumn: '1 / -1' }}>
-                    {categorias.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                </select>
+                        {/* Plataformas (Apenas visual) */}
+                        <div style={{ display: 'flex', gap: '15px', color: '#999', fontSize: '18px', marginBottom: '20px', justifyContent: 'center' }}>
+                            <i className="fa-brands fa-steam social-icon"></i>
+                            <i className="fa-brands fa-playstation social-icon"></i>
+                            <i className="fa-brands fa-xbox social-icon"></i>
+                        </div>
 
-                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '10px' }}>
-                    <button type="submit" style={{ padding: '10px 20px', backgroundColor: '#008542', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Salvar</button>
-                    {idEdicao && <button type="button" onClick={limparFormulario} style={{ padding: '10px 20px', backgroundColor: '#6c757d', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>}
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button onClick={() => prepararEdicao(j)} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', backgroundColor: '#111', color: '#fff', fontWeight: '600', cursor: 'pointer', transition: '0.2s' }}>EDITAR</button>
+                            <button onClick={() => setIdParaExcluir(j.id)} style={{ padding: '12px 15px', borderRadius: '10px', border: '1px solid #ffe5e5', backgroundColor: '#fff', color: '#e60000', cursor: 'pointer', transition: '0.2s' }}>
+                                <i className="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Modal de Formulário */}
+            {isModalOpen && (
+                <div className="modal-overlay">
+                    <div className="modal-content" style={{ maxWidth: '600px' }}>
+                        <h2 style={{ marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <i className="fa-solid fa-gamepad" style={{ color: '#e60000' }}></i>
+                            {idEdicao ? 'Editar Jogo' : 'Novo Jogo'}
+                        </h2>
+                        <form onSubmit={handleSalvar} className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <label style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>Título do Jogo</label>
+                                <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} required placeholder="Ex: The Last of Us" />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>Preço (R$)</label>
+                                <input type="number" step="0.01" value={preco} onChange={e => setPreco(Number(e.target.value))} required />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>Ano</label>
+                                <input type="number" value={ano} onChange={e => setAno(Number(e.target.value))} required />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>Classificação</label>
+                                <select value={classificacao} onChange={e => setClassificacao(Number(e.target.value))}>
+                                    <option value={Classificacao.Livre}>Livre</option>
+                                    <option value={Classificacao.DezAnos}>+10 Anos</option>
+                                    <option value={Classificacao.DozeAnos}>+12 Anos</option>
+                                    <option value={Classificacao.DezoitoAnos}>+18 Anos</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>Categoria</label>
+                                <select value={categoriaId} onChange={e => setCategoriaId(Number(e.target.value))}>
+                                    {categorias.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                                </select>
+                            </div>
+                            <div style={{ gridColumn: '1 / -1', marginTop: '20px', display: 'flex', gap: '10px' }}>
+                                <button type="submit" style={{ flex: 2, padding: '14px', backgroundColor: '#e60000', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>SALVAR REGISTRO</button>
+                                <button type="button" onClick={fecharModal} style={{ flex: 1, padding: '14px', backgroundColor: '#eee', color: '#444', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>CANCELAR</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
-            </form>
+            )}
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                <thead>
-                    <tr style={{ backgroundColor: '#f1f1f1', borderBottom: '2px solid #008542' }}>
-                        <th style={{ padding: '10px', textAlign: 'left', color: '#333' }}>Título</th>
-                        <th style={{ padding: '10px', textAlign: 'left', color: '#333' }}>Categoria</th>
-                        <th style={{ padding: '10px', textAlign: 'left', color: '#333' }}>Preço Base</th>
-                        <th style={{ padding: '10px', textAlign: 'left', color: '#333' }}>Com Desconto</th>
-                        <th style={{ padding: '10px', textAlign: 'left', color: '#333' }}>Idade</th>
-                        <th style={{ padding: '10px', textAlign: 'center', color: '#333' }}>Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {jogos.map(j => (
-                        <tr key={j.id} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{ padding: '10px' }}>{j.titulo}</td>
-                            <td style={{ padding: '10px' }}>{j.categoria || 'Sem Categoria'}</td>
-                            <td style={{ padding: '10px' }}>R$ {j.precoOriginal.toFixed(2)}</td>
-                            <td style={{ padding: '10px', color: '#008542', fontWeight: 'bold' }}>R$ {j.precoComDesconto?.toFixed(2)}</td>
-                            <td style={{ padding: '10px' }}>{Classificacao[j.classificacao]}</td>
-                            <td style={{ padding: '10px', textAlign: 'center', display: 'flex', gap: '5px', justifyContent: 'center' }}>
-                                <button onClick={() => prepararEdicao(j)} style={{ backgroundColor: '#FFCD00', color: '#333', border: 'none', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Editar</button>
-                                <button onClick={() => handleExcluir(j.id)} style={{ backgroundColor: '#dc3545', color: '#fff', border: 'none', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Excluir</button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            {/* Modal de Confirmação de Exclusão */}
+            {idParaExcluir && (
+                <div className="modal-overlay">
+                    <div className="modal-content" style={{ textAlign: 'center', maxWidth: '400px' }}>
+                        <div style={{ width: '60px', height: '60px', backgroundColor: '#ffe5e5', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto' }}>
+                            <i className="fa-solid fa-trash-can" style={{ fontSize: '24px', color: '#e60000' }}></i>
+                        </div>
+                        <h2 style={{ marginBottom: '10px', fontSize: '20px' }}>Excluir Jogo?</h2>
+                        <p style={{ color: '#666', fontSize: '14px', marginBottom: '25px' }}>O jogo será removido permanentemente da sua biblioteca.</p>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button onClick={confirmarExclusao} style={{ flex: 1, padding: '12px', backgroundColor: '#e60000', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>Sim, Excluir</button>
+                            <button onClick={() => setIdParaExcluir(null)} style={{ flex: 1, padding: '12px', backgroundColor: '#eee', color: '#444', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
